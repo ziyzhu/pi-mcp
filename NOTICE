@@ -1,0 +1,14 @@
+pi-mcp
+Copyright 2026 Ziyuan Zhu
+
+The initial MCP adapter, Pi process/session manager, Tailscale publication code,
+and lifecycle E2E were extracted from OpenOx (Apache-2.0):
+https://github.com/ziyzhu/openox
+Original implementation: commit 05ae1c7 (apps/cli/src/serve.ts,
+apps/cli/src/serve/, and apps/cli/serve-e2e.ts).
+
+Modified here to provide an independent launcher, optional Tailscale publication,
+pi-mcp protocol identity, process-group cleanup, and standalone verification.
+
+Pi is a separate project and is not bundled in this repository:
+https://github.com/earendil-works/pi

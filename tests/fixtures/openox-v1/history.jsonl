@@ -1,0 +1,7 @@
+{"type":"session","version":3,"id":"0c637271-808b-4471-ac97-5a1cd3419d92","timestamp":"2026-10-04T07:37:28.783Z","cwd":"@WORKSPACE@"}
+{"type":"session_info","id":"5f2fa0eb","parentId":null,"timestamp":"2026-10-04T07:37:28.784Z","name":"Pre-extraction fixture"}
+{"type":"model_change","id":"1fa67e0d","parentId":"5f2fa0eb","timestamp":"2026-10-04T07:37:28.811Z","provider":"openai","modelId":"gpt-6.1-sol"}
+{"type":"thinking_level_change","id":"6533599e","parentId":"1fa67e0d","timestamp":"2026-10-04T07:37:28.811Z","thinkingLevel":"high"}
+{"type":"message","id":"42807a0f","parentId":"6533599e","timestamp":"2026-10-04T07:37:28.826Z","message":{"role":"system","content":"You are a fixture assistant.","toolsAdded":[],"timestamp":1791099448825}}
+{"type":"message","id":"1ea61355","parentId":"42807a0f","timestamp":"2026-10-04T07:37:28.826Z","message":{"role":"user","content":[{"type":"text","text":"Reply exactly PERSISTED_BEFORE_EXTRACTION. Do not use tools."}],"timestamp":1791099448825}}
+{"type":"message","id":"9c269902","parentId":"1ea61355","timestamp":"2026-10-04T07:37:32.187Z","message":{"role":"assistant","content":[{"type":"text","text":"PERSISTED_BEFORE_EXTRACTION"}],"api":"openai-responses","provider":"openai","model":"gpt-6.1-sol","usage":{"input":1131,"output":11,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":1142,"cost":{"input":0.0022619999999999997,"output":0.00011,"cacheRead":0,"cacheWrite":0,"total":0.0023719999999999995}},"stopReason":"stop","timestamp":1791099448836,"thinkingLevel":"high"}}

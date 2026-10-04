@@ -1,0 +1,24 @@
+{
+  "name": "pi-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Manage Pi coding-agent sessions through MCP, with optional private Tailscale publication",
+  "author": "Ziyuan Zhu",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "bun tests/lifecycle.ts && bun tests/launcher.ts"
+  },
+  "engines": { "bun": ">=1.3.0" },
+  "repository": { "type": "git", "url": "git+https://github.com/ziyzhu/pi-mcp.git" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.13",
+    "typescript": "5.9.3"
+  }
+}
