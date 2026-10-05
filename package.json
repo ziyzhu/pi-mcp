@@ -6,10 +6,12 @@
   "author": "Ziyuan Zhu",
   "license": "Apache-2.0",
   "type": "module",
+  "pi": { "extensions": ["./src/extension.ts"] },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
   "scripts": {
     "start": "bun src/main.ts",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "bun tests/lifecycle.ts && bun tests/launcher.ts"
+    "test:e2e": "bun tests/lifecycle.ts && bun tests/launcher.ts && bun tests/attachment.ts"
   },
   "engines": { "bun": ">=1.3.0" },
   "repository": { "type": "git", "url": "git+https://github.com/ziyzhu/pi-mcp.git" },
@@ -18,6 +20,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.0.2",
     "@types/bun": "1.3.13",
     "typescript": "5.9.3"
   }

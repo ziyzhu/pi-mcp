@@ -56,7 +56,7 @@ try {
   check(legacy.messages.some((message: any) => message.role === "assistant" && message.content?.some((block: any) => block.text === "PERSISTED_BEFORE_EXTRACTION")), "Pre-extraction history was lost");
   check(await readFile(join(legacyDirectory, "session.json"), "utf8") === metadata, "Predecessor metadata was rewritten");
   const tools = await client!.listTools();
-  check(tools.tools.length === 7, "Expected seven tools");
+  check(tools.tools.length === 8, "Expected eight tools");
   check(tools.tools.every((tool) => !tool.name.startsWith("pi_")), "Unexpected prefix");
   await rejected("create_session", { cwd: "/" });
   const created = await call("create_session", { cwd: directory, name: "MCP lifecycle E2E" });

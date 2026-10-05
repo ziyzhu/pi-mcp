@@ -19,7 +19,7 @@ export class PiRuntime {
   private writes: Promise<void> = Promise.resolve();
 
   constructor(executable: string, cwd: string, args: string[], onExit: (code: number | null, signal: NodeJS.Signals | null) => void) {
-    this.process = spawn(executable, ["--mode", "rpc", ...args], { cwd, stdio: "pipe" });
+    this.process = spawn(executable, ["--mode", "rpc", ...args], { cwd, stdio: "pipe", env: { ...process.env, PI_MCP_MANAGED: "1" } });
     this.process.stdout.setEncoding("utf8");
     this.process.stdout.on("data", (chunk: string) => this.consume(chunk));
     // Drain diagnostics without forwarding possibly sensitive provider output to MCP clients.

@@ -6,16 +6,18 @@ import { createHttpHandler } from "./server.ts";
 import { diagnostic, Sessions } from "./sessions.ts";
 import { startTailscaleServe, type ManagedTailscaleServe } from "./tailscale.ts";
 
-const help = `Usage: scripts/serve-pi [--tailscale] [--port <port>] [--directory <path>] [--data-dir <path>] [--pi <executable>]
+const help = `Usage: scripts/serve-pi [--tailscale] [--port <port>] [--directory <path>] [--data-dir <path>] [--pi <executable>] [--session-dir <path>] [--bridge-dir <path>]
 
-Serve managed Pi sessions as MCP on loopback, optionally published through Tailscale.
+Serve managed, bridge-attached, and saved Pi sessions as MCP on loopback.
 No pairing or bearer token: only expose this server to trusted callers.
 
   --tailscale   Publish HTTPS on port 443; restrict Tailscale grants/ACLs first
   --port        Loopback HTTP port (default 9877)
-  --directory   Allowed initial working-directory root (default current directory)
+  --directory   Workspace root for creation and existing-session exposure (default cwd)
   --data-dir    Managed session storage (default ~/.pi-mcp)
   --pi          Installed Pi executable (default pi)
+  --session-dir Existing Pi session storage root (default ~/.pi/agent/sessions)
+  --bridge-dir  Private bridge registry (default PI_MCP_BRIDGE_DIR or ~/.pi-mcp/bridges)
 
 Optional publication requires connected Tailscale, MagicDNS, and HTTPS/Serve.
 pi-mcp refuses to replace existing Serve configuration and stops its own foreground
@@ -33,7 +35,7 @@ async function configuration(args: string[]) {
     const flag = args[index]!;
     if (flag === "--tailscale" && !tailscale) { tailscale = true; continue; }
     const value = args[++index];
-    if (!["--port", "--directory", "--data-dir", "--pi"].includes(flag) || !value || value.startsWith("--") || options[flag]) throw new Error(help);
+    if (!["--port", "--directory", "--data-dir", "--pi", "--session-dir", "--bridge-dir"].includes(flag) || !value || value.startsWith("--") || options[flag]) throw new Error(help);
     options[flag] = value;
   }
   const port = Number(options["--port"] ?? 9877);
@@ -41,12 +43,13 @@ async function configuration(args: string[]) {
   const root = await realpath(options["--directory"] ?? process.cwd());
   const directory = resolve(options["--data-dir"] ?? join(homedir(), ".pi-mcp"));
   const executable = options["--pi"] ?? "pi";
-  return { port, root, directory, executable, tailscale };
+  const discovery = { sessionDirectory: options["--session-dir"] && resolve(options["--session-dir"]), bridgeDirectory: options["--bridge-dir"] && resolve(options["--bridge-dir"]) };
+  return { port, root, directory, executable, tailscale, discovery };
 }
 
 export async function serve(args: string[]): Promise<void> {
   if (args.length === 1 && ["--help", "-h"].includes(args[0]!)) { console.log(help); return; }
-  const { port, root, directory, executable, tailscale } = await configuration(args);
+  const { port, root, directory, executable, tailscale, discovery } = await configuration(args);
   try { execFileSync(executable, ["--version"], { timeout: 10_000, stdio: "pipe" }); }
   catch { throw new Error("Pi executable is unavailable; install Pi or specify --pi"); }
 
@@ -54,7 +57,7 @@ export async function serve(args: string[]): Promise<void> {
   const lock = join(directory, "serve.lock");
   try { await mkdir(lock, { mode: 0o700 }); }
   catch { throw new Error(`Session storage is locked. Check for another pi-mcp or ox serve process. After a crash, remove ${lock} only after confirming no server is running.`); }
-  const sessions = new Sessions(join(directory, "sessions"), root, executable);
+  const sessions = new Sessions(join(directory, "sessions"), root, executable, discovery);
   const controller = new AbortController();
   const shutdown = new Promise<void>((done) => controller.signal.addEventListener("abort", () => done(), { once: true }));
   const stop = () => controller.abort();
@@ -75,7 +78,7 @@ export async function serve(args: string[]): Promise<void> {
     controller.signal.throwIfAborted();
     const endpoint = publication?.endpoint ?? `http://127.0.0.1:${port}/mcp`;
     diagnostic("started", { endpoint, directory: root, tailscale });
-    console.log(`MCP endpoint: ${endpoint}\nAllowed initial directory: ${root}\nAccess: ${tailscale ? "Tailscale grants/ACLs" : "local processes"}; no pairing.\nPress Ctrl+C to shut down managed Pi processes.`);
+    console.log(`MCP endpoint: ${endpoint}\nAllowed initial directory: ${root}\nExisting sessions exposed within: ${root}\nAccess: ${tailscale ? "Tailscale grants/ACLs" : "local processes"}; no pairing.\nPress Ctrl+C to shut down managed Pi processes; attached terminal sessions stay running.`);
     const code = await Promise.race([shutdown.then(() => undefined), ...(publication ? [publication.exited] : [])]);
     if (!controller.signal.aborted && code !== undefined) throw new Error(await publication?.exitMessage() || `Tailscale Serve exited with status ${code}`);
   } finally {
