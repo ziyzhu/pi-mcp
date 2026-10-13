@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const directory = await realpath(await mkdtemp(join(tmpdir(), "pi-mcp-e2e-")));
+const sessionRoot = join(directory, "external");
 let endpoint!: URL;
 let sessions: Sessions | undefined;
 let stopServer: (() => void) | undefined;
@@ -16,7 +17,7 @@ let client: Client | undefined;
 function check(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 async function start(): Promise<void> {
   // Internal network harness exercises the production handler without publishing a tailnet route.
-  sessions = new Sessions(join(directory, "data", "sessions"), directory, "pi");
+  sessions = new Sessions(join(directory, "data", "sessions"), directory, "pi", sessionRoot);
   await sessions.load();
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: createHttpHandler(sessions, new Set(["127.0.0.1"])) });
   stopServer = () => { server.stop(true); };
@@ -50,7 +51,33 @@ try {
   await mkdir(join(legacyDirectory, "pi"), { recursive: true });
   await writeFile(join(legacyDirectory, "session.json"), metadata);
   await writeFile(join(legacyDirectory, "pi", `2026-10-04T07-37-28-783Z_${legacyId}.jsonl`), (await readFile(join(fixture, "history.jsonl"), "utf8")).replaceAll("@WORKSPACE@", directory));
+  const externalId = randomUUID();
+  const externalPath = join(sessionRoot, "legacy.jsonl");
+  const externalHistory = (await readFile(join(fixture, "history.jsonl"), "utf8"))
+    .replaceAll("@WORKSPACE@", directory).replaceAll(legacyId, externalId).replace('"version":3', '"version":2');
+  await mkdir(sessionRoot);
+  await writeFile(externalPath, externalHistory);
+  const outsideId = randomUUID();
+  await mkdir(join(sessionRoot, "outside"));
+  await writeFile(join(sessionRoot, "outside", "history.jsonl"), externalHistory.replaceAll(externalId, outsideId).replaceAll(directory, "/"));
   await start();
+  const discovered = await call("list_sessions");
+  check(discovered.sessions.some((entry: any) => entry.sessionId === externalId && entry.ownership === "saved" && !entry.capabilities.send && entry.capabilities.fork), "Saved history was not discovered as read-only");
+  check(!discovered.sessions.some((entry: any) => entry.sessionId === outsideId), "Out-of-scope history was exposed");
+  const external = await call("read_session", { sessionId: externalId });
+  check(external.messages.some((message: any) => message.role === "assistant" && message.content?.some((block: any) => block.text === "PERSISTED_BEFORE_EXTRACTION")), "External legacy history was lost");
+  await rejected("resume_session", { sessionId: externalId });
+  await rejected("send_message", { sessionId: externalId, runtimeId: randomUUID(), commandId: randomUUID(), message: "Do not execute" });
+  const forked = await call("fork_session", { sessionId: externalId, name: "Saved history copy" });
+  check(forked.sessionId !== externalId, "Fork reused external identity");
+  check((await call("read_session", { sessionId: forked.sessionId })).messages.some((message: any) => message.role === "assistant" && message.content?.some((block: any) => block.text === "PERSISTED_BEFORE_EXTRACTION")), "Fork lost saved history");
+  check(await readFile(externalPath, "utf8") === externalHistory, "Discovery or fork rewrote external history");
+  const duplicatePath = join(sessionRoot, "outside", "duplicate.jsonl");
+  await writeFile(duplicatePath, externalHistory);
+  check(!(await call("list_sessions")).sessions.some((entry: any) => entry.sessionId === externalId), "Ambiguous saved identity was exposed");
+  await rejected("read_session", { sessionId: externalId });
+  await rejected("fork_session", { sessionId: externalId });
+  await rm(duplicatePath);
   await call("resume_session", { sessionId: legacyId });
   const legacy = await call("read_session", { sessionId: legacyId });
   check(legacy.messages.some((message: any) => message.role === "assistant" && message.content?.some((block: any) => block.text === "PERSISTED_BEFORE_EXTRACTION")), "Pre-extraction history was lost");
@@ -109,7 +136,7 @@ try {
     const history = await call("read_session", { sessionId: id });
     check(history.messages.some((message: any) => message.role === "assistant" && message.content?.some((block: any) => block.type === "text" && block.text.includes("PI_MCP_OK"))), "Assistant history did not survive restart");
   }
-  console.log("PASS: real MCP/Pi lifecycle, deduplication, stale targets, persistence, reconnect, resources, ingress checks, and pre-extraction session compatibility");
+  console.log("PASS: real MCP/Pi lifecycle, deduplication, stale targets, persistence, reconnect, resources, ingress checks, pre-extraction session compatibility, saved-history discovery/forking, scope, and ambiguous ownership");
 } finally {
   await stop();
   await rm(directory, { recursive: true, force: true });

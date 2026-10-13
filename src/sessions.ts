@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { z } from "zod";
 import { PiRuntime } from "./pi-runtime.ts";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { contains, ExistingSessions, type DiscoveryOptions } from "./existing-sessions.ts";
-import { managedCapabilities, messagePage } from "./bridge.ts";
+import { contains, SavedSessions } from "./saved-sessions.ts";
+import { managedCapabilities, messagePage } from "./presentation.ts";
 import { diagnostic } from "./diagnostics.ts";
 export { diagnostic } from "./diagnostics.ts";
 
@@ -21,10 +21,10 @@ export class Sessions {
   private readonly commands = new Map<string, { signature: string; result: Promise<unknown> }>();
   private closing = false;
 
-  private readonly existing: ExistingSessions;
+  private readonly saved: SavedSessions;
 
-  constructor(private readonly directory: string, private readonly allowedRoot: string, private readonly executable: string, discovery: DiscoveryOptions = {}) {
-    this.existing = new ExistingSessions(allowedRoot, discovery);
+  constructor(private readonly directory: string, private readonly allowedRoot: string, private readonly executable: string, sessionDirectory?: string) {
+    this.saved = new SavedSessions(allowedRoot, sessionDirectory);
   }
 
   async load(): Promise<void> {
@@ -57,14 +57,12 @@ export class Sessions {
       ownership: "managed", capabilities: managedCapabilities,
       status: !runtime?.alive ? "saved" : runtime.pendingInteractions().length ? "blocked" : runtime.working ? "working" : "idle",
     }));
-    const existing = await this.existing.list() as { sessionId: string; ownership: string }[];
-    const attached = new Set(existing.filter((entry) => entry.ownership === "attached").map((entry) => entry.sessionId));
-    if (managed.some((entry) => entry.running && attached.has(entry.sessionId))) throw new Error("More than one Pi runtime owns a managed session; resolve the duplicate locally");
-    return [...managed.filter((entry) => !attached.has(entry.sessionId)), ...existing.filter((entry) => entry.ownership === "attached" || !this.sessions.has(entry.sessionId))];
+    const saved = await this.saved.list() as { sessionId: string }[];
+    return [...managed, ...saved.filter((entry) => !this.sessions.has(entry.sessionId))];
   }
 
   async fork(id: string, name?: string): Promise<unknown> {
-    const source = await this.existing.source(id);
+    const source = await this.saved.source(id);
     return this.create({ cwd: source.cwd, name: name ?? source.name }, source.path);
   }
 
@@ -84,12 +82,7 @@ export class Sessions {
   }
 
   async resume(id: string): Promise<unknown> {
-    const attached = await this.existing.attached(id);
-    if (attached) {
-      if (this.sessions.get(id)?.runtime?.alive) throw new Error("More than one Pi runtime owns this session; resolve the duplicate locally");
-      return attached;
-    }
-    if (!this.sessions.has(id)) return this.existing.resume(id);
+    if (!this.sessions.has(id)) throw new Error("Live ownership is unknown. Use fork_session to create a separate managed copy");
     const session = this.get(id);
     const runtime = await this.start(session);
     return { sessionId: id, runtimeId: runtime.id, state: await runtime.request("get_state") };
@@ -123,12 +116,7 @@ export class Sessions {
   }
 
   async read(id: string, before?: number, limit = 10): Promise<unknown> {
-    const attached = await this.existing.attached(id, before, limit);
-    if (attached) {
-      if (this.sessions.get(id)?.runtime?.alive) throw new Error("More than one Pi runtime owns this session; resolve the duplicate locally");
-      return attached;
-    }
-    if (!this.sessions.has(id)) return this.existing.read(id, before, limit);
+    if (!this.sessions.has(id)) return this.saved.read(id, before, limit);
     const session = this.get(id);
     if (!session.runtime?.alive) return { sessionId: id, running: false, resumeRequired: true };
     const runtime = session.runtime;
@@ -142,7 +130,7 @@ export class Sessions {
     };
   }
 
-  mutate(id: string, runtimeId: string, commandId: string, operation: string, input: unknown, fn: (runtime: { id: string; request: PiRuntime["request"]; respond: PiRuntime["respond"] }) => Promise<unknown>): Promise<unknown> {
+  mutate(id: string, runtimeId: string, commandId: string, operation: string, input: unknown, fn: (runtime: PiRuntime) => Promise<unknown>): Promise<unknown> {
     const key = `${id}:${commandId}`;
     const signature = createHash("sha256").update(JSON.stringify({ runtimeId, operation, input })).digest("hex");
     const cached = this.commands.get(key);
@@ -151,27 +139,24 @@ export class Sessions {
       return cached.result;
     }
     if (this.commands.size >= 10_000) return Promise.reject(new Error("Command deduplication capacity reached; restart the server before further mutations"));
-    const session = this.sessions.get(id);
-    const predecessor = operation === "interaction" ? Promise.resolve() : session?.tail.catch(() => {}) ?? Promise.resolve();
+    const session = this.get(id);
+    const predecessor = operation === "interaction" ? Promise.resolve() : session.tail.catch(() => {});
     const result = predecessor.then(async () => {
       if (this.closing) throw new Error("Server is shutting down");
-      const attached = await this.existing.attached(id, undefined, 1);
-      if (attached && session?.runtime?.alive) throw new Error("More than one Pi runtime owns this session; resolve the duplicate locally");
-      if (!attached && session && !session.runtime?.alive) throw new Error("Session is not running; resume it first");
-      const runtime = attached || !session ? await this.existing.runtime(id, runtimeId, commandId, operation) : session.runtime!;
+      const runtime = session.runtime;
+      if (!runtime?.alive) throw new Error("Session is not running; resume it first");
       if (runtime.id !== runtimeId) throw new Error("Stale runtimeId; read the session again");
       diagnostic("command", { sessionId: id, commandId, operation });
       try {
         const value = await fn(runtime);
-        const dispatched = typeof value === "object" && value !== null && "disposition" in value && value.disposition === "dispatched";
-        diagnostic(dispatched ? "command_dispatched" : "command_accepted", { sessionId: id, commandId, operation });
+        diagnostic("command_accepted", { sessionId: id, commandId, operation });
         return value;
       } catch (error) {
         diagnostic("command_failed", { sessionId: id, commandId, operation });
         throw error;
       }
     });
-    if (session && operation !== "interaction") session.tail = result;
+    if (operation !== "interaction") session.tail = result;
     this.commands.set(key, { signature, result });
     return result;
   }

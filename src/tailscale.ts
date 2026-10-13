@@ -63,10 +63,16 @@ function dnsName(status: JSONObject): string {
 }
 
 function servesTarget(status: JSONObject, name: string, target: string): boolean {
-  const web = object(status.Web ?? {});
-  const site = object(web[`${name}:443`] ?? {});
-  const handlers = object(site.Handlers ?? {});
-  return object(handlers["/"] ?? {}).Proxy === `http://${target}`;
+  const foreground = status.Foreground;
+  const publications = foreground && typeof foreground === "object" && !Array.isArray(foreground)
+    ? Object.values(foreground).map(object)
+    : [status];
+  return publications.some((publication) => {
+    const web = object(publication.Web ?? {});
+    const site = object(web[`${name}:443`] ?? {});
+    const handlers = object(site.Handlers ?? {});
+    return object(handlers["/"] ?? {}).Proxy === `http://${target}`;
+  });
 }
 
 /** Foreground Serve only: never reset, replace, or take ownership of an existing route. */
